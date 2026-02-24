@@ -140,7 +140,37 @@ if grep -q "/tmp/root" /proc/mounts 2>/dev/null; then
   umount /tmp/root || panic "NUTS Rescue: failed to unmount /tmp/root"
 fi
 
-mount -t xfs "$ROOT_DEV" /tmp/root || panic "NUTS Rescue: mount NX_ROOT failed ($ROOT_DEV)"
+# Try to mount the filesystem; if it fails due to corruption, reformat it
+if ! mount -t xfs "$ROOT_DEV" /tmp/root 2>/dev/null; then
+  cat >/dev/console <<'EOF'
+  ! NX_ROOT filesystem is corrupted or damaged
+  ! Reformatting partition to create clean filesystem...
+EOF
+
+  # Try to capture the old UUID before destroying it
+  # If the filesystem is too corrupted, blkid might fail - that's OK
+  OLD_UUID="$(blkid -s UUID -o value "$ROOT_DEV" 2>/dev/null || true)"
+
+  # Wipe filesystem signature
+  wipefs -a "$ROOT_DEV" >/dev/null 2>&1 || panic "NUTS Rescue: wipefs failed"
+
+  # Create new XFS filesystem with NX_ROOT label
+  # If we captured the old UUID, reuse it to maintain GRUB compatibility
+  UUID_CHANGED="false"
+  if [ -n "$OLD_UUID" ]; then
+    printf '  ✓ Preserving filesystem UUID: %s\n' "$OLD_UUID" >/dev/console
+    mkfs.xfs -f -L NX_ROOT -m uuid="$OLD_UUID" "$ROOT_DEV" >/dev/null 2>&1 || panic "NUTS Rescue: mkfs.xfs with UUID failed"
+  else
+    printf '  ! Could not read old UUID, creating new filesystem\n' >/dev/console
+    mkfs.xfs -f -L NX_ROOT "$ROOT_DEV" >/dev/null 2>&1 || panic "NUTS Rescue: mkfs.xfs failed"
+    UUID_CHANGED="true"
+  fi
+
+  printf '  ✓ Filesystem reformatted\n' >/dev/console
+
+  # Try mounting again after reformat
+  mount -t xfs "$ROOT_DEV" /tmp/root || panic "NUTS Rescue: mount after reformat failed"
+fi
 
 # Verify mount is successful before wiping
 if ! grep -q "/tmp/root" /proc/mounts 2>/dev/null; then
@@ -168,7 +198,41 @@ if ! zstd -d -c "$BACKUP_FILE" | xfsrestore - /tmp/root; then
   panic "NUTS Rescue: decompression or restore failed"
 fi
 
-printf '  ✓ System restored successfully\n\n' >/dev/console
+printf '  ✓ System restored successfully\n' >/dev/console
+
+# If we had to create a new UUID due to severe corruption, regenerate GRUB config
+if [ -n "$UUID_CHANGED" ] && [ "$UUID_CHANGED" = "true" ]; then
+  printf '  ➜ Regenerating GRUB configuration for new UUID...\n' >/dev/console
+
+  # Get the new UUID
+  NEW_UUID="$(blkid -s UUID -o value "$ROOT_DEV" 2>/dev/null || true)"
+
+  if [ -n "$NEW_UUID" ]; then
+    # Mount proc, sys, dev for chroot environment
+    mount -t proc proc /tmp/root/proc 2>/dev/null || true
+    mount -t sysfs sys /tmp/root/sys 2>/dev/null || true
+    mount --bind /dev /tmp/root/dev 2>/dev/null || true
+
+    # Update fstab if it uses UUID
+    if [ -f /tmp/root/etc/fstab ]; then
+      sed -i "s|UUID=[a-f0-9-]*\s\+/\s|UUID=$NEW_UUID / |g" /tmp/root/etc/fstab 2>/dev/null || true
+    fi
+
+    # Regenerate GRUB configuration
+    chroot /tmp/root update-grub 2>/dev/null || true
+
+    # Unmount chroot mounts
+    umount /tmp/root/dev 2>/dev/null || true
+    umount /tmp/root/sys 2>/dev/null || true
+    umount /tmp/root/proc 2>/dev/null || true
+
+    printf '  ✓ GRUB configuration updated\n' >/dev/console
+  else
+    printf '  ! Could not regenerate GRUB (UUID not readable)\n' >/dev/console
+  fi
+fi
+
+printf '\n' >/dev/console
 
 printf '  ➜ Syncing filesystems...\n' >/dev/console
 sync

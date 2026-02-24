@@ -1,5 +1,12 @@
+nitrux-rescue-mode (0.0.2) nitrux; urgency=medium
+
+  * Handle severe filesystem corruption edge-case.
+  * Handle fixing GRUB after restoring a backup and the UUID doesn't match.
+
+ -- Uri Herrera <uri_herrera@nxos.org>  Tue, 24 Feb 2026 15:45:00 -0500
+
 nitrux-rescue-mode (0.0.1) nitrux; urgency=medium
 
-  * Initial release
+  * Initial release.
 
  -- Uri Herrera <uri_herrera@nxos.org>  Tue, 24 Feb 2026 15:45:00 -0500
