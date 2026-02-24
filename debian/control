@@ -1,0 +1,15 @@
+Source: nitrux-rescue-mode
+Section: misc
+Priority: optional
+Maintainer: Uri Herrera <uri_herrera@nxos.org>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.6.2
+Homepage: http://nxos.org
+
+
+Package: nitrux-rescue-mode
+Architecture: all
+Depends: ${shlibs:Depends}, ${misc:Depends}, grub2-common, initramfs-tools
+Description: Rescue Mode restores a NUTS backup.
+ Rescue Mode is a boot path implemented through GRUB and initramfs for restoring a NUTS backup.
+
